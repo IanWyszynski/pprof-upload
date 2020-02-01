@@ -99,6 +99,17 @@ func main() {
 	defer watcher.Close()
 	done := make(chan bool)
 
+	for {
+		if _, err := os.Stat(input); os.IsNotExist(err) {
+			fmt.Printf("Waiting for file '%v' to be created.\n", input)
+		} else if err != nil {
+			fmt.Printf("Unexpected error while waiting for '%v' to be created.\n", input)
+		} else {
+			break
+		}
+		time.Sleep(3 * time.Second)
+	}
+
 	payload, err := ioutil.ReadFile(input)
 	if err != nil {
 		log.Fatalf("unable to read file %v: %v\n", input, err)
