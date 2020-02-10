@@ -40,7 +40,6 @@ var (
 	project   string
 	zone      string
 	target    string
-	version   string
 	namespace string
 
 	input        string
@@ -61,9 +60,8 @@ func main() {
 	flag.StringVar(&project, "project", "", "")
 	flag.StringVar(&zone, "zone", "", "")
 	flag.StringVar(&target, "target", "", "")
-	flag.StringVar(&version, "version", "", "")
-	flag.StringVar(&input, "i", "pprof.out", "")
 	flag.StringVar(&namespace, "namespace", "", "")
+	flag.StringVar(&input, "i", "pprof.out", "")
 	flag.BoolVar(&keepTime, "keep-time", false, "")
 	flag.BoolVar(&offline, "offline", false, "")
 	flag.IntVar(&durationSecs, "duration", 15, "")
@@ -121,7 +119,7 @@ func main() {
 			log.Fatalf("unable to read file %v: %v\n", input, err)
 			return
 		}
-		latestProfile, err = create(ctx, payload, namespace)
+		latestProfile, err = create(ctx, payload)
 		if err != nil {
 			log.Fatalf("unable to create profile (does it already exist?): %v\n", err)
 			return
@@ -137,7 +135,7 @@ func main() {
 							log.Fatalf("unable to read file %v: %v\n", input, err)
 							continue
 						}
-						latestProfile, err = create(ctx, payload, namespace)
+						latestProfile, err = create(ctx, payload)
 						if err != nil {
 							log.Fatalf("unable to update profile: %v\n", err)
 							continue
@@ -173,31 +171,21 @@ func main() {
 			log.Fatalf("unable to read file %v: %v\n", input, err)
 			return
 		}
-		if err := upload(ctx, payload, namespace); err != nil {
+		if err := upload(ctx, payload); err != nil {
 			log.Fatalf("Cannot upload to Stackdriver Profiler: %v\n", err)
 		}
 		fmt.Printf("https://console.cloud.google.com/profiler/%s;type=%s?project=%s\n", url.PathEscape(target), pb.ProfileType_CPU, project)
 	}
 }
 
-func create(ctx context.Context, payload []byte, namespace string) (*pb.Profile, error) {
-	var labels map[string]string
-	if namespace == "" {
-		labels = map[string]string{
-			"zone":    zone,
-			"version": version,
-		}
-	} else {
-		labels = map[string]string{
-			"zone":      zone,
-			"version":   version,
-			"namespace": namespace,
-		}
-	}
+func create(ctx context.Context, payload []byte) (*pb.Profile, error) {
 	deployment := &pb.Deployment{
 		ProjectId: project,
 		Target:    target,
-		Labels:    labels,
+		Labels: map[string]string{
+			"zone":    zone,
+			"version": namespace,
+		},
 	}
 	req := &pb.CreateProfileRequest{
 		Parent:      "projects/" + project,
@@ -222,26 +210,12 @@ func update(ctx context.Context, payload []byte) (*pb.Profile, error) {
 	return client.UpdateProfile(ctx, req)
 }
 
-func upload(ctx context.Context, payload []byte, namespace string) error {
+func upload(ctx context.Context, payload []byte) error {
 	if !keepTime {
 		var err error
 		payload, err = resetTime(payload)
 		if err != nil {
 			log.Printf("Cannot reset the profile's time: %v", err)
-		}
-	}
-
-	var labels map[string]string
-	if namespace == "" {
-		labels = map[string]string{
-			"zone":    zone,
-			"version": version,
-		}
-	} else {
-		labels = map[string]string{
-			"zone":      zone,
-			"version":   version,
-			"namespace": namespace,
 		}
 	}
 
@@ -252,7 +226,10 @@ func upload(ctx context.Context, payload []byte, namespace string) error {
 			Deployment: &pb.Deployment{
 				ProjectId: project,
 				Target:    target,
-				Labels:    labels,
+				Labels: map[string]string{
+					"zone":    zone,
+					"version": namespace,
+				},
 			},
 			ProfileBytes: payload,
 		},
@@ -286,7 +263,6 @@ Other options:
 -zone       Google Cloud zone, tries to automatically resolve if
 		    none is set.
 -target     Target profile name to upload data to.
--version    Version of the profiled program.
 -keep-time  When set, keeps the original time info from the profile file.
 			Due to data retention limits, Stackdriver Profiler won't
             show data older than 30 days. By default, false.
@@ -294,8 +270,8 @@ Other options:
 	    updating an online profile accordingly. When not set, sends a one-off
 	    offline profile creation request with the contents of the profile
 	    specified by -i.
--namespace  If set, adds the "namespace" label to the corresponding profile. This
-	    is used when upload profiles that are associated with a specific
+-namespace  If set, adds the "version" label to the corresponding profile. This
+	    is typically used when upload profiles that are associated with a specific
 	    customer namespace.
 -duration   Set the duration (in seconds) that each profile accounts for.
 `
