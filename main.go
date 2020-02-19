@@ -47,6 +47,8 @@ var (
 	offline      bool
 	durationSecs int
 
+	verbose bool
+
 	latestProfile *pb.Profile
 )
 
@@ -65,6 +67,7 @@ func main() {
 	flag.BoolVar(&keepTime, "keep-time", false, "")
 	flag.BoolVar(&offline, "offline", false, "")
 	flag.IntVar(&durationSecs, "duration", 15, "")
+	flag.BoolVar(&verbose, "verbose", false, "")
 	flag.Usage = usageAndExit
 	flag.Parse()
 
@@ -76,11 +79,17 @@ func main() {
 			log.Fatalf("Cannot resolve the GCP project from the metadata server: %v", err)
 		}
 		project = id
+		if verbose {
+			log.Printf("Resolved GCP project id: %v.\n", project)
+		}
 	}
 	if zone == "" {
 		// Ignore error. If we cannot resolve the instance name,
 		// it would be too aggressive to fatal exit.
 		zone, _ = metadata.Zone()
+		if verbose {
+			log.Printf("Determined GCP zone: %v\n", zone)
+		}
 	}
 
 	if target == "" {
@@ -119,6 +128,9 @@ func main() {
 			log.Fatalf("unable to read file %v: %v\n", input, err)
 			return
 		}
+		if verbose {
+			log.Printf("Read input file '%v' successfully.\n", input)
+		}
 		latestProfile, err = create(ctx, payload)
 		if err != nil {
 			log.Fatalf("unable to create profile (does it already exist?): %v\n", err)
@@ -129,31 +141,46 @@ func main() {
 			for {
 				select {
 				case event := <-watcher.Events:
+					if verbose {
+						log.Printf("Received fsnotify event '%v'.\n", event.String())
+					}
 					if (event.Op&fsnotify.Create != 0) || (event.Op&fsnotify.Write != 0) {
+						stat, err := os.Stat(input)
+						if err != nil {
+							if err != nil {
+								log.Fatalf("Error stat(2)ing input file '%v': %v", input, err)
+							}
+							continue
+						}
 						payload, err := ioutil.ReadFile(input)
 						if err != nil {
-							log.Fatalf("unable to read file %v: %v\n", input, err)
+							log.Fatalf("Unable to read file %v: %v\n", input, err)
+							continue
+						}
+						if int64(len(payload)) != stat.Size() {
+							log.Fatalf("Error expected '%v' to have size %v, but read payload of size %v. Ignoring event.\n",
+								input, stat.Size(), len(payload))
 							continue
 						}
 						latestProfile, err = create(ctx, payload)
 						if err != nil {
-							log.Fatalf("unable to update profile: %v\n", err)
+							log.Fatalf("Unable to update profile: %v\n", err)
 							continue
 						}
 						_, err = update(ctx, payload)
 						if err != nil {
-							log.Fatalf("unable to update profile: %v\n", err)
+							log.Fatalf("Unable to update profile: %v\n", err)
 							continue
 						}
 					}
 				case err := <-watcher.Errors:
-					log.Fatalf("error watching %v with fsnotify: %v\n", input, err)
+					log.Fatalf("Error watching %v with fsnotify: %v\n", input, err)
 				}
 			}
 		}()
 
 		if err := watcher.Add(input); err != nil {
-			log.Fatalf("unable to set up fsnotify watcher for file %v: %v\n", input, err)
+			log.Fatalf("Unable to set up fsnotify watcher for file %v: %v\n", input, err)
 			return
 		}
 
@@ -274,6 +301,7 @@ Other options:
 	    is typically used when upload profiles that are associated with a specific
 	    customer namespace.
 -duration   Set the duration (in seconds) that each profile accounts for.
+-verbose    Verbose logging.
 `
 
 func usageAndExit() {
