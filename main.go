@@ -23,6 +23,7 @@ import (
 	"log"
 	"net/url"
 	"os"
+	"path"
 	"time"
 
 	"cloud.google.com/go/compute/metadata"
@@ -144,7 +145,10 @@ func main() {
 					if verbose {
 						log.Printf("Received fsnotify event '%v'.\n", event.String())
 					}
-					if (event.Op&fsnotify.Create != 0) || (event.Op&fsnotify.Write != 0) {
+					if (event.Name != input) {
+						continue
+					}
+					if (event.Op&fsnotify.Create != 0) {
 						stat, err := os.Stat(input)
 						if err != nil {
 							if err != nil {
@@ -179,7 +183,7 @@ func main() {
 			}
 		}()
 
-		if err := watcher.Add(input); err != nil {
+		if err := watcher.Add(path.Dir(input)); err != nil {
 			log.Fatalf("Unable to set up fsnotify watcher for file %v: %v\n", input, err)
 			return
 		}
